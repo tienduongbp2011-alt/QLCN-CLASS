@@ -252,6 +252,16 @@ FOR ALL
 USING (true) 
 WITH CHECK (true);
 
--- 5. Kích hoạt tính năng Realtime (Đồng bộ tức thì khi có thay đổi)
-ALTER PUBLICATION supabase_realtime ADD TABLE public.${SUPABASE_TABLE_NAME};
+-- 5. Kích hoạt tính năng Realtime (An toàn, tự kiểm tra tránh trùng lặp)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' 
+    AND schemaname = 'public' 
+    AND tablename = '${SUPABASE_TABLE_NAME}'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.${SUPABASE_TABLE_NAME};
+  END IF;
+END $$;
 `;
