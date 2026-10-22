@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Menu, 
   X, 
@@ -59,6 +59,14 @@ import { ClassFundView } from './components/ClassFundView';
 import { LuckyWheel } from './components/LuckyWheel';
 import { ReportsView } from './components/ReportsView';
 import { SettingsView } from './components/SettingsView';
+import { SupabaseSyncModal } from './components/SupabaseSyncModal';
+import { 
+  getAutoSyncEnabled, 
+  uploadStoreToSupabase, 
+  getSupabaseClient, 
+  SUPABASE_TABLE_NAME, 
+  STORE_ROW_ID 
+} from './utils/supabase';
 
 export default function App() {
   // Master Store state loaded from localStorage
@@ -88,6 +96,8 @@ export default function App() {
   });
 
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showSupabaseModal, setShowSupabaseModal] = useState(false);
+  const isRemoteUpdateRef = useRef(false);
 
   // Sync role to localStorage
   useEffect(() => {
@@ -148,6 +158,53 @@ export default function App() {
   // Persist store to localStorage on changes
   useEffect(() => {
     saveStore(store);
+  }, [store]);
+
+  // Realtime subscription to Supabase changes
+  useEffect(() => {
+    let channel: any;
+    try {
+      const client = getSupabaseClient();
+      channel = client
+        .channel('public:' + SUPABASE_TABLE_NAME)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: SUPABASE_TABLE_NAME },
+          (payload: any) => {
+            if (payload?.new && payload.new.id === STORE_ROW_ID && payload.new.data) {
+              const remoteStore = payload.new.data as FullClassDataStore;
+              isRemoteUpdateRef.current = true;
+              setStore(remoteStore);
+            }
+          }
+        )
+        .subscribe();
+    } catch (e) {
+      // ignore if offline
+    }
+
+    return () => {
+      if (channel) {
+        try {
+          getSupabaseClient().removeChannel(channel);
+        } catch {}
+      }
+    };
+  }, []);
+
+  // Debounced Auto-sync to Supabase when store changes
+  useEffect(() => {
+    if (isRemoteUpdateRef.current) {
+      isRemoteUpdateRef.current = false;
+      return;
+    }
+    if (!getAutoSyncEnabled()) return;
+
+    const timer = setTimeout(() => {
+      uploadStoreToSupabase(store).catch(() => {});
+    }, 2500);
+
+    return () => clearTimeout(timer);
   }, [store]);
 
   // Active class lookup
@@ -742,6 +799,7 @@ export default function App() {
         onOpenLogin={() => setShowLoginModal(true)}
         onLogoutToGVCN={handleLogoutToGVCN}
         onLogout={handleLogout}
+        onOpenSupabaseSync={() => setShowSupabaseModal(true)}
       />
 
       {/* Main Layout Container */}
@@ -963,6 +1021,7 @@ export default function App() {
               onRestoreSampleData={handleRestoreSampleData}
               onClearAllData={handleClearAllData}
               onLogout={handleLogout}
+              onOpenSupabaseSync={() => setShowSupabaseModal(true)}
             />
           )}
         </main>
@@ -1053,6 +1112,17 @@ export default function App() {
         onSelectRole={handleLoginSuccess}
         students={store.students}
         currentClass={currentClass}
+      />
+
+      {/* Supabase Cloud Database Management & Realtime Sync Modal */}
+      <SupabaseSyncModal
+        isOpen={showSupabaseModal}
+        onClose={() => setShowSupabaseModal(false)}
+        store={store}
+        onApplyStore={(newStore) => {
+          isRemoteUpdateRef.current = true;
+          setStore(newStore);
+        }}
       />
     </div>
   );

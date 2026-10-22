@@ -35,6 +35,7 @@ interface HeaderProps {
   onOpenLogin: () => void;
   onLogoutToGVCN: () => void;
   onLogout?: () => void;
+  onOpenSupabaseSync: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -51,7 +52,8 @@ export const Header: React.FC<HeaderProps> = ({
   currentUserRole,
   onOpenLogin,
   onLogoutToGVCN,
-  onLogout
+  onLogout,
+  onOpenSupabaseSync
 }) => {
   const [isEditingTeacher, setIsEditingTeacher] = useState(false);
   const [teacherInput, setTeacherInput] = useState(currentClass.teacherName);
@@ -280,6 +282,21 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </div>
           )}
+
+          {/* Supabase Cloud Sync Quick Button */}
+          <button
+            type="button"
+            onClick={() => {
+              onOpenSupabaseSync();
+              sound.playClick();
+            }}
+            className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs"
+            title="Đồng bộ cơ sở dữ liệu Supabase"
+          >
+            <Database className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Supabase</span>
+            <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" />
+          </button>
 
           {/* Sound Toggle */}
           <button

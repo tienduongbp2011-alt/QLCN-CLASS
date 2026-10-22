@@ -19,7 +19,8 @@ import {
   Eye,
   EyeOff,
   LogOut,
-  GraduationCap
+  GraduationCap,
+  Cloud
 } from 'lucide-react';
 import { FullClassDataStore, ClassInfo, AppSettings } from '../types';
 import { exportSingleFileHtml } from '../utils/exportHtml';
@@ -33,6 +34,7 @@ interface SettingsViewProps {
   onRestoreSampleData: () => void;
   onClearAllData: () => void;
   onLogout?: () => void;
+  onOpenSupabaseSync: () => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -42,7 +44,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onImportBackup,
   onRestoreSampleData,
   onClearAllData,
-  onLogout
+  onLogout,
+  onOpenSupabaseSync
 }) => {
   const { settings } = allStore;
 
@@ -370,6 +373,45 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </button>
           </div>
         </form>
+      </div>
+
+      {/* Section 2.8: Supabase Cloud Database */}
+      <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-cyan-50 border border-emerald-200 rounded-2xl p-5 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 bg-emerald-600 text-white rounded-xl shadow-xs shrink-0">
+              <Cloud className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-slate-900">
+                  Cơ Sở Dữ Liệu Đám Mây Supabase (PostgreSQL Cloud)
+                </h3>
+                <span className="px-2 py-0.5 text-[11px] font-bold rounded-full bg-emerald-200 text-emerald-900">
+                  Đã cấu hình
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 mt-1 max-w-xl leading-relaxed">
+                Đồng bộ trực tuyến và lưu trữ dữ liệu an toàn trên đám mây Supabase. Hỗ trợ nhiều thiết bị (máy tính, điện thoại) cùng truy cập và cập nhật điểm số, thi đua theo thời gian thực.
+              </p>
+              <div className="text-[11px] text-slate-500 font-mono mt-1">
+                Dự án: <span className="font-semibold text-emerald-800">gdoxbonoiumnpiswqris.supabase.co</span>
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              onOpenSupabaseSync();
+              sound.playClick();
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs whitespace-nowrap transition-all"
+          >
+            <Database className="w-4 h-4" />
+            Mở Bảng Điều Khiển Supabase
+          </button>
+        </div>
       </div>
 
       {/* Section 3: Backup & Restore JSON */}
