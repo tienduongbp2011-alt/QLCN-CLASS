@@ -15,7 +15,9 @@ import {
   LogOut,
   KeyRound,
   UserCheck,
-  Lock
+  Lock,
+  RefreshCw,
+  Cloud
 } from 'lucide-react';
 import { ClassInfo, UserRole, Student } from '../types';
 import { sound } from '../utils/audio';
@@ -36,6 +38,7 @@ interface HeaderProps {
   onLogoutToGVCN: () => void;
   onLogout?: () => void;
   onOpenSupabaseSync: () => void;
+  cloudSyncState?: 'synced' | 'saving' | 'offline' | 'error';
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -53,7 +56,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenLogin,
   onLogoutToGVCN,
   onLogout,
-  onOpenSupabaseSync
+  onOpenSupabaseSync,
+  cloudSyncState = 'synced'
 }) => {
   const [isEditingTeacher, setIsEditingTeacher] = useState(false);
   const [teacherInput, setTeacherInput] = useState(currentClass.teacherName);
@@ -290,12 +294,30 @@ export const Header: React.FC<HeaderProps> = ({
               onOpenSupabaseSync();
               sound.playClick();
             }}
-            className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs"
+            className={`flex items-center gap-1.5 px-3 py-2 text-white rounded-xl text-xs font-bold transition-all shadow-xs ${
+              cloudSyncState === 'saving'
+                ? 'bg-amber-600 hover:bg-amber-700'
+                : cloudSyncState === 'error'
+                ? 'bg-rose-600 hover:bg-rose-700'
+                : 'bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800'
+            }`}
             title="Đồng bộ cơ sở dữ liệu Supabase"
           >
-            <Database className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Supabase</span>
-            <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" />
+            {cloudSyncState === 'saving' ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Database className="w-3.5 h-3.5" />
+            )}
+            <span className="hidden sm:inline">
+              {cloudSyncState === 'saving' ? 'Đang lưu...' : cloudSyncState === 'error' ? 'Lỗi Supabase' : 'Supabase'}
+            </span>
+            <span className={`w-2 h-2 rounded-full ${
+              cloudSyncState === 'saving'
+                ? 'bg-amber-300 animate-ping'
+                : cloudSyncState === 'error'
+                ? 'bg-rose-300'
+                : 'bg-emerald-300 animate-pulse'
+            }`} />
           </button>
 
           {/* Sound Toggle */}

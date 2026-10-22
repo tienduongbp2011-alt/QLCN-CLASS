@@ -7,7 +7,9 @@ import {
   Users, 
   Check, 
   ArrowRight,
-  Plus
+  Plus,
+  Database,
+  RefreshCw
 } from 'lucide-react';
 import { 
   FullClassDataStore, 
@@ -63,6 +65,7 @@ import { SupabaseSyncModal } from './components/SupabaseSyncModal';
 import { 
   getAutoSyncEnabled, 
   uploadStoreToSupabase, 
+  fetchStoreFromSupabase,
   getSupabaseClient, 
   SUPABASE_TABLE_NAME, 
   STORE_ROW_ID 
@@ -97,7 +100,13 @@ export default function App() {
 
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showSupabaseModal, setShowSupabaseModal] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [cloudSyncState, setCloudSyncState] = useState<'synced' | 'saving' | 'offline' | 'error'>('synced');
+  
+  const isCloudInitializedRef = useRef(false);
   const isRemoteUpdateRef = useRef(false);
+  const latestStoreRef = useRef(store);
+  latestStoreRef.current = store;
 
   // Sync role to localStorage
   useEffect(() => {
@@ -160,7 +169,46 @@ export default function App() {
     saveStore(store);
   }, [store]);
 
-  // Realtime subscription to Supabase changes
+  // 1. Initial Load from Supabase Cloud on App Startup
+  useEffect(() => {
+    let isMounted = true;
+    async function initCloudData() {
+      try {
+        const res = await fetchStoreFromSupabase();
+        if (!isMounted) return;
+
+        if (res.success && res.data && res.data.classes && res.data.classes.length > 0) {
+          isRemoteUpdateRef.current = true;
+          setStore(res.data);
+          saveStore(res.data);
+          setCloudSyncState('synced');
+        } else {
+          // Chưa có dữ liệu trên đám mây, dùng bản lưu cục bộ và đẩy lên khởi tạo
+          const localStore = loadStore();
+          setStore(localStore);
+          uploadStoreToSupabase(localStore).then((upRes) => {
+            if (isMounted && upRes.success) setCloudSyncState('synced');
+          }).catch(() => {});
+        }
+      } catch (err) {
+        console.warn('[Supabase] Không thể kết nối ban đầu, dùng bộ nhớ cục bộ:', err);
+        setCloudSyncState('offline');
+      } finally {
+        if (isMounted) {
+          isCloudInitializedRef.current = true;
+          setIsInitialLoading(false);
+        }
+      }
+    }
+
+    initCloudData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // 2. Realtime subscription to Supabase changes from other windows / devices
   useEffect(() => {
     let channel: any;
     try {
@@ -175,6 +223,8 @@ export default function App() {
               const remoteStore = payload.new.data as FullClassDataStore;
               isRemoteUpdateRef.current = true;
               setStore(remoteStore);
+              saveStore(remoteStore);
+              setCloudSyncState('synced');
             }
           }
         )
@@ -192,20 +242,46 @@ export default function App() {
     };
   }, []);
 
-  // Debounced Auto-sync to Supabase when store changes
+  // 3. Debounced Auto-sync to Supabase when user modifies store
   useEffect(() => {
+    // QUAN TRỌNG: Tuyệt đối KHÔNG upload đè khi chưa hoàn tất tải từ đám mây
+    if (!isCloudInitializedRef.current) {
+      return;
+    }
+    // Nếu thay đổi đến từ đám mây (Realtime hoặc fetch), bỏ qua để tránh lặp vô tận
     if (isRemoteUpdateRef.current) {
       isRemoteUpdateRef.current = false;
       return;
     }
     if (!getAutoSyncEnabled()) return;
 
-    const timer = setTimeout(() => {
-      uploadStoreToSupabase(store).catch(() => {});
-    }, 2500);
+    setCloudSyncState('saving');
+    const timer = setTimeout(async () => {
+      try {
+        const res = await uploadStoreToSupabase(store);
+        if (res.success) {
+          setCloudSyncState('synced');
+        } else {
+          setCloudSyncState('error');
+        }
+      } catch (e) {
+        setCloudSyncState('error');
+      }
+    }, 600); // 600ms phản hồi nhanh, an toàn dữ liệu
 
     return () => clearTimeout(timer);
   }, [store]);
+
+  // 4. Lưu ngay khi người dùng đóng trình duyệt hoặc đổi tab
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (isCloudInitializedRef.current && getAutoSyncEnabled()) {
+        uploadStoreToSupabase(latestStoreRef.current);
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
 
   // Active class lookup
   const currentClass = store.classes.find(c => c.id === store.settings.activeClassId) || store.classes[0] || {
@@ -770,6 +846,24 @@ export default function App() {
     afternoon: {}
   };
 
+  // Initial loading from Supabase splash screen
+  if (isInitialLoading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 text-white select-none">
+        <div className="w-16 h-16 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center mb-4 shadow-xl shadow-emerald-500/10 animate-bounce">
+          <Database className="w-8 h-8 text-emerald-400" />
+        </div>
+        <h2 className="text-lg font-bold tracking-tight">Đang đồng bộ dữ liệu từ Supabase Cloud...</h2>
+        <p className="text-xs text-slate-400 mt-1.5 max-w-sm text-center leading-relaxed">
+          Đang tải danh sách học sinh, điểm danh và sổ điểm mới nhất từ máy chủ đám mây
+        </p>
+        <div className="w-52 h-1.5 bg-slate-800 rounded-full mt-5 overflow-hidden">
+          <div className="h-full bg-emerald-400 rounded-full animate-pulse w-3/4"></div>
+        </div>
+      </div>
+    );
+  }
+
   // Dedicated Login Screen Gate: Requires password for both Teacher and Team Leader
   if (!isAuthenticated) {
     return (
@@ -800,6 +894,7 @@ export default function App() {
         onLogoutToGVCN={handleLogoutToGVCN}
         onLogout={handleLogout}
         onOpenSupabaseSync={() => setShowSupabaseModal(true)}
+        cloudSyncState={cloudSyncState}
       />
 
       {/* Main Layout Container */}
