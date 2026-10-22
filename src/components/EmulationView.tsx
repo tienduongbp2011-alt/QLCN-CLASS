@@ -41,7 +41,8 @@ import {
   Upload,
   Download,
   FileSpreadsheet,
-  FileDown
+  FileDown,
+  Undo2
 } from 'lucide-react';
 import { 
   Student, 
@@ -63,7 +64,7 @@ interface EmulationViewProps {
   students: Student[];
   criteria: EmulationCriterion[];
   logs: EmulationLog[];
-  onAddLog: (log: Omit<EmulationLog, 'id'>) => void;
+  onAddLog: (log: Omit<EmulationLog, 'id'> & { id?: string }) => void;
   onDeleteLog: (logId: string) => void;
   onAddCriterion: (crit: Omit<EmulationCriterion, 'id'>) => void;
   onDeleteCriterion: (critId: string) => void;
@@ -129,6 +130,61 @@ export const EmulationView: React.FC<EmulationViewProps> = ({
   // Common Date
   const [eventDate, setEventDate] = useState(new Date().toISOString().slice(0, 10));
   const [successAlert, setSuccessAlert] = useState<string | null>(null);
+
+  // Undo state for recently scored items
+  const [lastUndoAction, setLastUndoAction] = useState<{
+    ids: string[];
+    description: string;
+  } | null>(null);
+
+  // Helper: Undo the most recent score action (single or batch)
+  const handleUndoLastAction = () => {
+    if (!lastUndoAction || lastUndoAction.ids.length === 0) return;
+    const desc = lastUndoAction.description;
+    lastUndoAction.ids.forEach(id => {
+      onDeleteLog(id);
+    });
+    sound.playClick();
+    setLastUndoAction(null);
+    setSuccessAlert(`Đã hoàn tác thành công: ${desc}! Điểm và xu đã được phục hồi.`);
+    setTimeout(() => setSuccessAlert(null), 4000);
+  };
+
+  // Helper: Undo/revert a specific log item with friendly confirmation
+  const handleUndoSingleLog = (log: EmulationLog) => {
+    if (isLocked) {
+      alert('Kỳ thi đua hiện đang được khóa để tổng kết.');
+      return;
+    }
+    const sign = log.points > 0 ? `+${log.points}` : `${log.points}`;
+    if (confirm(`Hoàn tác lượt chấm điểm của "${log.targetName}" (${sign} điểm - ${log.criterionName})?\n\nĐiểm số thi đua và xu của học sinh/tổ sẽ được phục hồi nguyên trạng.`)) {
+      onDeleteLog(log.id);
+      sound.playClick();
+      if (lastUndoAction?.ids.includes(log.id)) {
+        setLastUndoAction(null);
+      }
+      setSuccessAlert(`Đã hoàn tác và khôi phục điểm cho ${log.targetName} (${sign}đ)!`);
+      setTimeout(() => setSuccessAlert(null), 3500);
+    }
+  };
+
+  // Helper: Permanently delete a specific log item
+  const handleDeleteSingleLog = (log: EmulationLog) => {
+    if (isLocked) {
+      alert('Kỳ thi đua hiện đang được khóa để tổng kết.');
+      return;
+    }
+    const sign = log.points > 0 ? `+${log.points}` : `${log.points}`;
+    if (confirm(`Bạn có chắc chắn muốn xóa bản ghi chấm điểm của "${log.targetName}" (${sign} điểm - ${log.criterionName})?`)) {
+      onDeleteLog(log.id);
+      sound.playClick();
+      if (lastUndoAction?.ids.includes(log.id)) {
+        setLastUndoAction(null);
+      }
+      setSuccessAlert(`Đã xóa lượt chấm điểm của ${log.targetName}!`);
+      setTimeout(() => setSuccessAlert(null), 3500);
+    }
+  };
 
   // -------------------------------------------------------------
   // CROSS-EVALUATION PLAN (PHƯƠNG ÁN CHẤM CHÉO)
@@ -304,7 +360,10 @@ export const EmulationView: React.FC<EmulationViewProps> = ({
     const finalPoints = basePoints * mult;
     const noteText = customNt !== undefined ? customNt : crossNote;
 
+    const generatedId = 'log_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+
     onAddLog({
+      id: generatedId,
       classId: currentClass.id,
       date: eventDate,
       criterionId: crit.id,
@@ -319,6 +378,11 @@ export const EmulationView: React.FC<EmulationViewProps> = ({
       timestamp: Date.now()
     });
 
+    setLastUndoAction({
+      ids: [generatedId],
+      description: `${student.fullName} (${finalPoints > 0 ? `+${finalPoints}` : finalPoints}đ - ${crit.name})`
+    });
+
     if (finalPoints > 0) {
       sound.playFanfare();
     } else {
@@ -326,7 +390,7 @@ export const EmulationView: React.FC<EmulationViewProps> = ({
     }
 
     setSuccessAlert(`Đã ghi nhận (${mult}x): ${student.fullName} (${finalPoints > 0 ? `+${finalPoints}` : finalPoints} điểm) - [${crit.name}]`);
-    setTimeout(() => setSuccessAlert(null), 3500);
+    setTimeout(() => setSuccessAlert(null), 4000);
   };
 
   // Helper: Apply batch score to selected students
@@ -349,11 +413,16 @@ export const EmulationView: React.FC<EmulationViewProps> = ({
     const finalPoints = basePoints * crossMultiplier;
 
     let countSuccess = 0;
+    const generatedIds: string[] = [];
     selectedMemberIds.forEach(stId => {
       const student = targetTeamMembers.find(s => s.id === stId);
       if (!student) return;
 
+      const logId = 'log_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7) + '_' + countSuccess;
+      generatedIds.push(logId);
+
       onAddLog({
+        id: logId,
         classId: currentClass.id,
         date: eventDate,
         criterionId: crit.id,
@@ -370,10 +439,15 @@ export const EmulationView: React.FC<EmulationViewProps> = ({
       countSuccess++;
     });
 
+    setLastUndoAction({
+      ids: generatedIds,
+      description: `${countSuccess} học sinh Tổ ${crossTargetTeam} (${finalPoints > 0 ? `+${finalPoints}` : finalPoints}đ - ${crit.name})`
+    });
+
     sound.playFanfare();
     setSuccessAlert(`Đã chấm điểm thành công cho ${countSuccess} học sinh Tổ ${crossTargetTeam} (${finalPoints > 0 ? `+${finalPoints}` : finalPoints} điểm)!`);
     setSelectedMemberIds([]);
-    setTimeout(() => setSuccessAlert(null), 3500);
+    setTimeout(() => setSuccessAlert(null), 4000);
   };
 
   // Helper: Score whole team
@@ -397,7 +471,10 @@ export const EmulationView: React.FC<EmulationViewProps> = ({
     const basePoints = crit.type === 'plus' ? Math.abs(crit.points) : -Math.abs(crit.points);
     const finalPoints = basePoints * teamScoreMultiplier;
 
+    const generatedId = 'log_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+
     onAddLog({
+      id: generatedId,
       classId: currentClass.id,
       date: eventDate,
       criterionId: crit.id,
@@ -412,12 +489,17 @@ export const EmulationView: React.FC<EmulationViewProps> = ({
       timestamp: Date.now()
     });
 
+    setLastUndoAction({
+      ids: [generatedId],
+      description: `Tập thể Tổ ${crossTargetTeam} (${finalPoints > 0 ? `+${finalPoints}` : finalPoints}đ - ${crit.name})`
+    });
+
     sound.playFanfare();
     setSuccessAlert(`Đã ghi nhận điểm tập thể Tổ ${crossTargetTeam} (${finalPoints > 0 ? `+${finalPoints}` : finalPoints} điểm) do [${evaluatorDisplayLabel}] thực hiện`);
     setShowTeamScoreModal(false);
     setTeamScoreNote('');
     setTeamScoreMultiplier(1);
-    setTimeout(() => setSuccessAlert(null), 3500);
+    setTimeout(() => setSuccessAlert(null), 4000);
   };
 
   // -------------------------------------------------------------
@@ -570,7 +652,10 @@ export const EmulationView: React.FC<EmulationViewProps> = ({
     const basePoints = crit.type === 'plus' ? Math.abs(crit.points) : -Math.abs(crit.points);
     const finalPoints = basePoints * Math.max(1, multiplier);
 
+    const generatedId = 'log_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+
     onAddLog({
+      id: generatedId,
       classId: currentClass.id,
       date: eventDate,
       criterionId: crit.id,
@@ -585,6 +670,11 @@ export const EmulationView: React.FC<EmulationViewProps> = ({
       timestamp: Date.now()
     });
 
+    setLastUndoAction({
+      ids: [generatedId],
+      description: `${targetName} (${finalPoints > 0 ? `+${finalPoints}` : finalPoints}đ - ${crit.name})`
+    });
+
     if (finalPoints > 0) {
       sound.playFanfare();
     } else {
@@ -594,7 +684,7 @@ export const EmulationView: React.FC<EmulationViewProps> = ({
     setSuccessAlert(`Đã ghi nhận (${multiplier}x): ${targetName} (${finalPoints > 0 ? `+${finalPoints}` : finalPoints} điểm) do [${evaluatorDisplayLabel}] thực hiện`);
     setEventNote('');
     setMultiplier(1);
-    setTimeout(() => setSuccessAlert(null), 3500);
+    setTimeout(() => setSuccessAlert(null), 4000);
   };
 
   // Quick Tap Handlers
@@ -638,14 +728,18 @@ export const EmulationView: React.FC<EmulationViewProps> = ({
     }
 
     let recordedCount = 0;
+    const generatedIds: string[] = [];
     entries.forEach(([studentId, count]) => {
       const st = classStudents.find(s => s.id === studentId);
       if (!st) return;
 
       const basePoints = crit.type === 'plus' ? Math.abs(crit.points) : -Math.abs(crit.points);
       const points = basePoints * count;
+      const logId = 'log_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7) + '_' + recordedCount;
+      generatedIds.push(logId);
 
       onAddLog({
+        id: logId,
         classId: currentClass.id,
         date: new Date().toISOString().slice(0, 10),
         criterionId: crit.id,
@@ -662,10 +756,15 @@ export const EmulationView: React.FC<EmulationViewProps> = ({
       recordedCount++;
     });
 
+    setLastUndoAction({
+      ids: generatedIds,
+      description: `Chấm nhanh ${recordedCount} học sinh (${crit.name})`
+    });
+
     sound.playFanfare();
     setSuccessAlert(`Đã ghi nhận điểm thi đua nhanh cho ${recordedCount} học sinh thành công!`);
     setQuickTapCounters({});
-    setTimeout(() => setSuccessAlert(null), 3500);
+    setTimeout(() => setSuccessAlert(null), 4000);
   };
 
   // Add new criterion
@@ -1084,11 +1183,37 @@ export const EmulationView: React.FC<EmulationViewProps> = ({
         )}
       </div>
 
-      {/* Success Alert */}
+      {/* Success Alert with Quick Undo Button */}
       {successAlert && (
-        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-2xl text-xs font-semibold flex items-center gap-2 shadow-xs animate-in fade-in">
-          <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>{successAlert}</span>
+        <div className="bg-emerald-50 border-2 border-emerald-300 text-emerald-950 px-4 py-3 rounded-2xl text-xs font-semibold flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm animate-in fade-in">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-6 h-6 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+              <CheckCircle className="w-4 h-4" />
+            </div>
+            <span className="font-bold leading-relaxed">{successAlert}</span>
+          </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+            {lastUndoAction && (
+              <button
+                type="button"
+                onClick={handleUndoLastAction}
+                className="px-3.5 py-1.5 bg-amber-400 hover:bg-amber-500 text-slate-950 rounded-xl font-black text-xs flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer ring-2 ring-amber-300"
+                title="Hoàn tác lượt chấm này nếu chấm nhầm"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-slate-950" />
+                <span>Hoàn tác vừa chấm</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setSuccessAlert(null)}
+              className="p-1 text-emerald-700 hover:text-emerald-950 hover:bg-emerald-100 rounded-lg transition-colors"
+              title="Đóng thông báo"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -1598,14 +1723,35 @@ export const EmulationView: React.FC<EmulationViewProps> = ({
 
             {/* Step 4: Recent cross-evaluated logs for this target team */}
             <div className="pt-4 border-t border-slate-100 space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5 uppercase tracking-wider">
-                  <Clock className="w-3.5 h-3.5 text-slate-500" />
-                  Nhật Ký Chấm Thi Đua Gần Nhất Của Tổ {crossTargetTeam} ({targetTeamRecentLogs.length} lượt ghi)
-                </h4>
-                <span className="text-[11px] text-slate-400">
-                  Có thể xóa / hoàn tác nếu ghi nhầm
-                </span>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5 uppercase tracking-wider">
+                    <Clock className="w-3.5 h-3.5 text-slate-500" />
+                    Nhật Ký Chấm Thi Đua Của Tổ Trưởng (Tổ {crossTargetTeam} - {targetTeamRecentLogs.length} lượt ghi)
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Tổ trưởng có thể bấm nút <strong>Hoàn tác</strong> hoặc <strong>Xóa</strong> bất kỳ lượt ghi nào nếu chấm nhầm
+                  </p>
+                </div>
+
+                {targetTeamRecentLogs.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const mostRecent = targetTeamRecentLogs[0];
+                        if (mostRecent) {
+                          handleUndoSingleLog(mostRecent);
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-300 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                      title="Hoàn tác lượt chấm gần nhất của tổ này"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-amber-700" />
+                      <span>Hoàn tác lượt vừa chấm</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
               {targetTeamRecentLogs.length === 0 ? (
@@ -1617,7 +1763,7 @@ export const EmulationView: React.FC<EmulationViewProps> = ({
                   {targetTeamRecentLogs.map(log => (
                     <div 
                       key={log.id} 
-                      className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs flex items-center justify-between gap-2 shadow-xs"
+                      className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs flex items-center justify-between gap-2 shadow-xs hover:border-slate-300 transition-all"
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 font-bold text-slate-900 truncate">
@@ -1639,21 +1785,27 @@ export const EmulationView: React.FC<EmulationViewProps> = ({
                         </div>
                       </div>
 
-                      {evaluatorTeamNumber === null && (
+                      {/* Action buttons: Hoàn tác & Xóa (cho cả Tổ trưởng & GVCN) */}
+                      <div className="flex items-center gap-1 shrink-0">
                         <button
                           type="button"
-                          onClick={() => {
-                            if (confirm(`Bạn có chắc muốn xóa lượt chấm này của ${log.targetName}?`)) {
-                              onDeleteLog(log.id);
-                              sound.playClick();
-                            }
-                          }}
-                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg shrink-0"
-                          title="Xóa lượt ghi này"
+                          onClick={() => handleUndoSingleLog(log)}
+                          className="px-2 py-1 bg-amber-100/90 hover:bg-amber-200 text-amber-950 border border-amber-300/80 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all shadow-2xs cursor-pointer"
+                          title="Hoàn tác lượt chấm này (xóa và khôi phục điểm nếu chấm nhầm)"
+                        >
+                          <RotateCcw className="w-3 h-3 text-amber-800" />
+                          <span>Hoàn tác</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteSingleLog(log)}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                          title="Xóa vĩnh viễn lượt chấm này"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
-                      )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -2421,8 +2573,8 @@ export const EmulationView: React.FC<EmulationViewProps> = ({
                       <th className="py-2.5 px-3 text-right">Điểm</th>
                       <th className="py-2.5 px-3">Người ghi nhận</th>
                       <th className="py-2.5 px-3">Ghi chú</th>
-                      <th className="py-2.5 px-3 text-center">
-                        {evaluatorTeamNumber !== null ? 'Trạng thái' : 'Thao tác'}
+                      <th className="py-2.5 px-3 text-center w-32">
+                        Thao tác
                       </th>
                     </tr>
                   </thead>
@@ -2452,25 +2604,26 @@ export const EmulationView: React.FC<EmulationViewProps> = ({
                           <td className="py-2.5 px-3 text-slate-600 font-medium">{l.evaluatorRole || 'GVCN'}</td>
                           <td className="py-2.5 px-3 text-slate-500 italic">{l.note || '-'}</td>
                           <td className="py-2.5 px-3 text-center">
-                            {evaluatorTeamNumber === null ? (
+                            <div className="flex items-center justify-center gap-1.5">
                               <button
                                 type="button"
-                                onClick={() => {
-                                  if (confirm(`Bạn có chắc muốn xóa bản ghi thi đua này của "${l.targetName}"?`)) {
-                                    onDeleteLog(l.id);
-                                    sound.playClick();
-                                  }
-                                }}
-                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                                title="Xóa bản ghi này"
+                                onClick={() => handleUndoSingleLog(l)}
+                                className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-200 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                                title="Hoàn tác lượt chấm này nếu chấm nhầm"
+                              >
+                                <RotateCcw className="w-3 h-3 text-amber-700" />
+                                <span>Hoàn tác</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteSingleLog(l)}
+                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                title="Xóa vĩnh viễn bản ghi này"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
-                            ) : (
-                              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                                Đã ghi
-                              </span>
-                            )}
+                            </div>
                           </td>
                         </tr>
                       ))

@@ -425,10 +425,10 @@ export default function App() {
   };
 
   // Emulation Actions
-  const handleAddEmulationLog = (logData: Omit<EmulationLog, 'id'>) => {
+  const handleAddEmulationLog = (logData: Omit<EmulationLog, 'id'> & { id?: string }) => {
     const newLog: EmulationLog = {
       ...logData,
-      id: 'log_' + Date.now().toString(36)
+      id: logData.id || ('log_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7))
     };
 
     setStore(prev => {
